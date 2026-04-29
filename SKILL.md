@@ -134,6 +134,14 @@ wastes context. Stopping early means recording the check as partial.
 
 If context budget forces an early stop, record: `2.X partial — checked N/M [units], stopped: context budget`.
 
+**Large artifact strategy (single file >500 lines):**
+Do not read the entire file into context. Instead:
+1. Read the header/imports/exports section (first ~30 lines) to understand shape.
+2. For each check, use targeted grep/search rather than full reads.
+3. Read specific line ranges only when a grep match needs context (±10 lines).
+4. If a check genuinely requires full-file reads (e.g. completeness), record
+   it as `⚠ partial` citing the file size and what was sampled.
+
 ---
 
 ## Differential mode
@@ -154,7 +162,8 @@ the current artifacts.
      Re-verify the finding at the new location.
    - **Content no longer present at cited location** → RE-VERIFY (artifact
      changed). Re-run the specific check against the new content. Outcome:
-     RESOLVED or PERSISTS-SHIFTED.
+     RESOLVED (problem fixed) or PERSISTS (still present, possibly shifted
+     in the same file) or SHIFTED (content moved to a different artifact).
    - **No match anywhere** → RESOLVED (tentative — confirm the artifact
      still exists; if artifact deleted, mark RESOLVED-DELETED).
 
@@ -216,8 +225,16 @@ Flag: missing → HIGH. Disagrees → HIGH. Ambiguous → MINOR.
 ### 2.2 Identity & equivalence
 Same thing, different names. Alias or drift? Identity must be trivially
 obvious or explicitly stated.
-**Mutation tracking:** when B derives from A, every behaviour-changing
-mutation must be documented. Check downstream artifacts still hold.
+**Mutation tracking:** when B derives from A (e.g. interface → implementation,
+spec claim → code behaviour, config value → runtime effect), identify every
+place B diverges from A. For each divergence: is it documented? Does every
+downstream artifact that depends on A's version still hold?
+
+To find mutations: diff the canonical claim in A against every downstream use
+in B with grep/read. A mutation is behaviour-changing if it changes:
+type, range, nullability, ordering guarantee, error behaviour, or cardinality.
+Cosmetic differences (naming, formatting) are not mutations.
+
 Flag: unexplained drift → HIGH. Undocumented behaviour change → HIGH.
 
 ### 2.3 Quantifier & set consistency
@@ -276,11 +293,22 @@ be true for this to hold? Trace backward to find the root, not the symptom.
 claim C
 └── requires B  [artifact X, Direct — v: read:42 → confirmed]
     └── requires A  [artifact Y, Inferred — reasoning: ...]
-        └── requires P  [not found — Circumstantial gap]
+        └── requires P  [not found — Circumstantial gap]  ← snap point
 ```
 
 Chain snaps when: dependency missing; holds under X, used in Y where X not
 guaranteed; introduces unwarranted assumption; two branches contradict.
+
+**Depth limit:** stop tracing a chain when any of these is true:
+- You reach an artifact boundary (the dependency is in an artifact not in scope).
+- The chain has reached 5 hops without a snap point — record as "no snap found
+  within 5 hops" and move on.
+- The next required dependency is a universal framework or language guarantee
+  (e.g. "Python integers don't overflow") — treat as terminal, not a gap.
+- The snap point is already captured by an existing Phase 2 or Phase 3 finding.
+
+Record all snap points found. If a chain produces no snap point after full
+depth, record it as a "clean chain" in the Assumptions register.
 
 Weakest evidence type in chain sets ceiling for the whole finding.
 Report snap point, not symptom.
@@ -293,16 +321,23 @@ Report snap point, not symptom.
 
 **Triage by impact × likelihood** before testing:
 
-| | Low likelihood of being false | High likelihood of being false |
-|---|---|---|
-| **High impact** (many chains depend on it) | Test second | Test first |
-| **Low impact** (few chains depend on it) | Test last / skip | Test third |
+| | Low likelihood of being false | Medium likelihood | High likelihood of being false |
+|---|---|---|---|
+| **High impact** (≥3 chains depend on it) | Test third | Test second | Test first |
+| **Low impact** (<3 chains depend on it) | Skip | Test last | Test third |
 
 - **Impact** = number of Phase 3 chains that depend on this assumption.
-- **Likelihood of being false** = how hidden the assumption is (explicitly
-  guaranteed somewhere → low; completely implicit, no artifact covers it → high)
-  plus any Phase 2 signals that hint at a violation (a MINOR finding nearby,
-  a smell-test hit, an identity drift in the same area).
+  High = ≥3 dependent chains or a CRITICAL finding depends on it.
+  Low = <3 chains and no CRITICAL dependency.
+
+- **Likelihood of being false** — score each assumption:
+  - **Low**: explicitly guaranteed in an artifact in scope (e.g. a contract clause,
+    an assert statement, a type annotation) AND no Phase 2 signals nearby.
+  - **Medium**: partially covered (implied by context, or guaranteed in one artifact
+    but not enforced in another) OR a MINOR Phase 2 finding in the same area.
+  - **High**: completely implicit — no artifact covers it — OR an existing Phase 2
+    finding already hints at a violation (a smell-test hit, identity drift nearby,
+    a MINOR finding in the same area that could explain the assumption being wrong).
 
 Work high-impact × high-likelihood first. Record the triage score for each
 assumption tested. Stop when budget is exhausted; name untested assumptions.
@@ -482,7 +517,43 @@ Self-audit: 0 dropped · 0 reclassified.
 
 ---
 
-## Principles
+## Worked example — differential mode
+
+Same three artifacts, one sprint later. Prior report (above) is in scope.
+`auth.py` was refactored: `authenticate()` moved to `auth/validator.py`.
+`spec.md` §3 now lists all 4 error codes. `test_auth.py` unchanged.
+
+**Phase 0:** differential mode. Prior report: 2026-04-29.
+
+**Differential matching:**
+
+Prior findings: C1, H1, H2, H3.
+
+- **C1** fingerprint: `(auth.py, raise valueerror("invalid token"))` + `(spec.md, returns none on invalid token)`
+  - `auth.py` grep for `raise ValueError` → 0 matches. RE-VERIFY.
+  - RE-VERIFY: grep `auth/validator.py` for `raise ValueError` → 1 match.
+  - Content found, path changed → **SHIFTED** (auth.py → auth/validator.py). Re-verify the contradiction still holds.
+  - `spec.md:14` still reads "returns None" [v: read spec.md:14 → confirmed]. SHIFTED + PERSISTS.
+
+- **H2** fingerprint: `(spec.md, # error codes defined in spec §3)` + absence of ERR_EXPIRED
+  - `spec.md` §3 now lists 4 codes [v: read spec.md §3 → 4 codes listed].
+  - grep `auth/validator.py` for ERR_EXPIRED → 1 match [v: grep → line 18].
+  - All 4 codes now implemented → **RESOLVED**.
+
+- **H1** fingerprint: `(auth.py, def authenticate(token: str))`
+  - `auth.py` grep → 0 matches. RE-VERIFY.
+  - grep `auth/validator.py` → `def authenticate(token: str)` line 3. **SHIFTED**.
+  - Empty-string guard still absent [v: grep "if not token" auth/validator.py → 0 matches]. SHIFTED + PERSISTS.
+
+- **H3** fingerprint: absence, no quoted artifact location.
+  - Re-check: grep all files for `authenticate(` call sites → `app.py:42` calls it.
+  - grep `app.py` for `except ValueError` → 0 matches [v: grep → 0 matches]. **PERSISTS**.
+
+**Report summary (differential):**
+```
+NEW: 0 · PERSISTS: 3 (C1-SHIFTED, H1-SHIFTED, H3) · RESOLVED: 1 (H2) · SHIFTED: 2 (C1, H1)
+```
+
 
 **`[v:]` is the gate, not advice.** No tag = no Direct evidence. This is
 structural — you cannot file a Direct finding without showing the receipt.
