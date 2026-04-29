@@ -182,15 +182,29 @@ the current artifacts.
 2. **Relationships** — what is derived from what?
 3. **Known gaps** — anything referenced but missing.
 4. **Out of scope** — what you will not verify and why.
-5. **Mode** — full or differential? (differential if prior report in scope)
+5. **Mode** — full / differential / focused (see below).
+6. **Authority** — when two artifacts contradict, which is ground truth?
+   State the authority order explicitly (e.g. "spec > code > tests").
+   If authority cannot be determined, record "authority unknown" under Known
+   gaps and flag both sides of every contradiction without declaring a winner.
+
+**Invocation mode:**
+
+- **Explicit** (`/logic-audit` called directly, or user asks to check/audit):
+  Full 6-phase audit across all provided artifacts.
+
+- **Proactive** (triggered after you generated or heavily edited artifacts):
+  Focused audit — scope = changed artifacts + their immediate dependents only.
+  Run phases 1, 2 (checks 2.1 + 2.5 + 2.7 only), and 5. Skip phases 3 and 4
+  unless a CRITICAL finding surfaces in phase 2. State "Mode: proactive" in
+  the report header.
 
 **Hard-stop only for scope-defining ambiguity** — you cannot identify which
 artifacts are in scope, or stated relationships contradict each other before
 the audit begins.
 
 For all other uncertainty — continue with bounded best-effort. Record every
-unresolved item under Known gaps. Do not abort a proactive post-edit audit
-because some peripheral context is missing.
+unresolved item under Known gaps.
 
 ---
 
@@ -208,7 +222,11 @@ because some peripheral context is missing.
 
 Record in the Assumptions register. Count them. They are the Phase 4 budget.
 
-**Coverage target:** ≥80% of extracted assumptions stress-tested in Phase 4.
+**Coverage gate:** before Phase 5, compute T/N where T = assumptions tested
+and N = total extracted. If T/N < 80% and untested assumptions include any
+with impact ≥1 chain: state explicitly which ones were skipped and why
+(budget / out-of-scope / no chains depend on it). Skipping without recording
+is not permitted — the gap must be visible in the report.
 
 ---
 
@@ -225,6 +243,11 @@ Flag: missing → HIGH. Disagrees → HIGH. Ambiguous → MINOR.
 ### 2.2 Identity & equivalence
 Same thing, different names. Alias or drift? Identity must be trivially
 obvious or explicitly stated.
+
+**Full sweep scope:** every named entity (person, system, identifier, concept,
+value) that appears in ≥2 artifacts. Build an entity list in Phase 1 —
+sweep = verifying every item on that list.
+
 **Mutation tracking:** when B derives from A (e.g. interface → implementation,
 spec claim → code behaviour, config value → runtime effect), identify every
 place B diverges from A. For each divergence: is it documented? Does every
@@ -257,6 +280,12 @@ Flag: claimed > actual → HIGH. Orphans → MINOR.
 
 ### 2.7 Internal contradiction
 Doc A says X, doc B says ¬X.
+
+**Full sweep scope:** every claim about a value, state, or behaviour that
+appears in ≥2 artifacts. Build a claims list from Phase 1 inventory — sweep
+= cross-checking every multi-artifact claim against every other artifact that
+references the same entity. One pass per claim, not per artifact pair.
+
 Flag: contradiction → HIGH. CRITICAL if reader would act incorrectly on it.
 
 ### 2.8 Boundary & edge consistency
@@ -370,12 +399,19 @@ Record counts: `Self-audit: P dropped, Q reclassified`.
 
 ```
 # Audit summary
-Mode: [full / differential — prior report: YYYY-MM-DD]
+Mode: [full / proactive / differential — prior report: YYYY-MM-DD]
 Artifacts: N. Check order: [2.X, 2.Y, ...]. Partial/skipped: [list + reason].
 Findings: C CRITICAL · H HIGH · M MINOR.
 Assumptions: N extracted · T tested (T/N = X%) · skipped: [list + reason].
 Self-audit: P dropped · Q reclassified.
 [Differential only] NEW: X · PERSISTS: Y · RESOLVED: Z · SHIFTED: W.
+
+## Fix these first
+1. [ID] — [one-line description of the highest-priority finding]
+2. [ID] — [second]
+3. [ID] — [third]
+(CRITICAL findings always appear here. Fill remaining slots with highest-impact HIGH findings.
+Omit this section only if there are zero CRITICAL and zero HIGH findings.)
 
 ## CRITICAL
 [C1] contradiction  [artifact:location]
@@ -469,10 +505,16 @@ are caught at caller level. No caller in scope — flag as [H3] absence.
 
 **Report:**
 ```
+Mode: full.
 Artifacts: 3. Check order: 2.5, 2.1, 2.7, 2.3 (rest skipped: low yield for this set).
 Findings: 1 CRITICAL · 3 HIGH · 0 MINOR.
-Assumptions: 3 extracted · 2 tested (67%) · A3 skipped: low dependency.
+Assumptions: 3 extracted · 2 tested (67%) · A3 skipped: 0 chains depend on it (gate satisfied).
 Self-audit: 0 dropped · 0 reclassified.
+
+## Fix these first
+1. C1 — auth.py raises ValueError on failure; spec says return None; all error-path tests are wrong
+2. H2 — ERR_EXPIRED not implemented; expired tokens fall through to wrong error path
+3. H3 — no caller-level handler for ValueError; unhandled exception will propagate
 
 ## CRITICAL
 [C1] contradiction  auth.py:34 vs spec.md:14
