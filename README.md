@@ -8,14 +8,34 @@ Not a linter. Not a code reviewer. It finds the bugs that only exist *between* a
 
 ## The problem it solves
 
-Most tools check one file at a time. But the nastiest bugs live in the gaps:
+Most tools check one file at a time. But the nastiest bugs live in the gaps between files — contradictions, broken references, names that drift, numbers that don't add up across documents.
 
-- The spec says `return None` on failure. The code `raise`s. The tests were written against the spec.
-- The API contract says `amount` is in EUR. The dashboard code assumes USD.
-- The config says `max_retries=3`. The implementation reads `max_retry` (typo). Silent default kicks in.
-- The ADR says "we chose approach B because A has race condition X". The implementation uses approach A.
+**Technical**
+- The spec says `return None` on failure. The code `raise`s. The tests were written against the spec — they all pass, all wrong.
+- API spec says the endpoint returns `{ "status": "ok", "data": [...] }`. Implementation returns `{ "success": true, "result": [...] }`. Client checks `status === "ok"` — always fails silently.
+- Config says `max_retries=3`. Implementation reads `max_retry` (typo). Silent default kicks in.
+- Changelog says field `user_id` removed in v2.3. Migration script still references it. One of them is wrong.
 
-Logic-audit finds these by treating your artifact set as a system and checking it as a whole.
+**Legal / contracts**
+- Contract A references Contract B as the "governing agreement". Contract B references Contract A. Circular — neither governs.
+- Amendment says "as defined in Section 4.2". Section 4.2 defines something different than what the amendment uses it for.
+- NDA says non-disclosure lasts 2 years after termination. Employment contract says 1 year. Which governs?
+
+**HR / employment**
+- Offer letter says start date March 1. Contract says March 15. Onboarding checklist says "send laptop 2 weeks before start date" — which date does that mean?
+- Offer letter says "Senior Engineer". Contract says "Engineer II". Org chart says "Lead Engineer". Three names, one person, zero explanation.
+
+**Finance**
+- Invoice says payment due 30 days from delivery. Contract defines "delivery" differently than the delivery note does. Overdue or not depends on which definition applies — and they contradict.
+- Q3 report says revenue €2.4M. Board presentation the same week says €2.1M. Neither flags a revision.
+- Balance sheet lists an asset acquired in 2021. Depreciation schedule starts in 2023. Two missing years.
+
+**Research / medical**
+- Study says N=142 participants. Results table has 139 rows. Discussion says "all 142 completed the protocol."
+- Patient record says allergy: penicillin. Discharge summary prescribes amoxicillin (a penicillin-class antibiotic).
+- Trial protocol says primary endpoint at 12 weeks. Results section reports 10-week data as the primary outcome.
+
+Logic-audit finds these by treating your document set as a system and checking it as a whole — not reading each file in isolation.
 
 ---
 
