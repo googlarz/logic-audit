@@ -25,12 +25,26 @@ The skill has five phases. Phases 1–3 are passive (scan and map). Phases 4–5
 are active (synthesize and attack). Don't skip the active phases — that's
 where the real bugs hide.
 
-Every finding must include:
-- Exact quoted values from each side of the contradiction
+Findings have two schemas depending on type:
+
+**Contradiction finding** (two artifacts say opposite things):
+- Quoted value A + quoted value B — both sides must be cited
 - Exact artifact(s) and location(s)
 - Severity: CRITICAL / HIGH / MINOR
 - Evidence type: Direct / Inferred / Circumstantial (see §Evidence grading)
 - Confidence: High / Medium / Low — capped by evidence type and depends-on chain
+- Depends-on: [finding IDs this finding rests on, if any]
+- Suggested fix where one is computable
+
+**Absence finding** (snap point, missing handler, unestablished precondition,
+counterfactual gap — Phase 3 and Phase 4 findings are usually this type):
+- Quoted assumption or claim that implies something should exist
+- What is absent or unhandled — described precisely, not quoted (it isn't there)
+- Why the absence matters: what breaks, silently fails, or remains unverified
+- Exact artifact(s) and location(s)
+- Severity: CRITICAL / HIGH / MINOR
+- Evidence type: Inferred or Circumstantial (absence findings are never Direct)
+- Confidence: capped by evidence type and depends-on chain
 - Depends-on: [finding IDs this finding rests on, if any]
 - Suggested fix where one is computable
 
@@ -71,8 +85,15 @@ Before anything else:
 3. **Known gaps** — anything referenced but missing.
 4. **Out of scope** — what you will not verify and why.
 
-If anything is ambiguous, stop and ask before running 5 phases on the wrong
-assumption. Surface uncertainty early.
+**Hard-stop only for scope-defining ambiguity** — e.g. you cannot identify
+which artifacts are in scope, or the stated relationships contradict each
+other before the audit begins. Stop and ask in those cases only.
+
+For all other uncertainty (missing attachments, unresolvable external
+references, unclear derivation edges, partial context) — continue with a
+bounded best-effort audit. Record every unresolved item under Known gaps
+in Phase 0 and in the final report's skipped-checks list. Do not abort a
+proactive post-edit audit because some peripheral context is missing.
 
 ---
 
@@ -339,15 +360,29 @@ Artifacts: N. Phases run: [list]. Skipped checks: [list with reason].
 Findings: X CRITICAL · Y HIGH · Z MINOR.
 
 ## CRITICAL
-[C1] [artifact:location]  "[quoted A]" vs "[quoted B]"
+[C1] contradiction  [artifact:location]
+  "[quoted A]" vs "[quoted B]"
   Why: [why impossible / always wrong]
   Evidence: Direct. Confidence: High. Depends-on: —. Fix: [if computable]
 
+[C2] absence  [artifact:location]
+  Claim: "[quoted assumption that implies X should be handled]"
+  Absent: [what is missing — handler / guard / precondition / etc.]
+  Impact: [what silently fails or breaks]
+  Evidence: Inferred. Confidence: Medium. Depends-on: —. Fix: [if computable]
+
 ## HIGH
-[H1] [artifact:location]  "[quoted A]" vs "[quoted B]"
+[H1] contradiction  [artifact:location]
+  "[quoted A]" vs "[quoted B]"
   Why: [why wrong or needs explanation]
   Evidence: Inferred — [one-line reasoning step]. Confidence: Medium.
   Depends-on: [C1 if applicable]. Fix: [if computable]
+
+[H2] absence  [artifact:location]
+  Claim: "[quoted assumption]"
+  Absent: [what is missing]
+  Impact: [consequence]
+  Evidence: Inferred. Confidence: Medium. Depends-on: —. Fix: [if computable]
 
 ## MINOR
 [M1] [artifact:location]  [observation]
