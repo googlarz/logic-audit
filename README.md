@@ -149,3 +149,9 @@ Then restart Claude Code (or reload skills).
 | v1.2 | `[v:]` structural gate, worked example, per-check bounds, Phase 4 triage matrix, differential fingerprints |
 | v1.1 | Evidence grading with hard ceilings, phase cross-feeding, OK method trails |
 | v1.0 | Initial release |
+
+---
+
+## License
+
+[CC BY 4.0](LICENSE) — free to use commercially, attribution required (credit + link to this repo).
