@@ -8,10 +8,10 @@ description: >
   do what they say", or requests a thorough check of a set of related artifacts.
   Also trigger proactively after generating or heavily editing a set of related
   artifacts before declaring done.
-version: 5.0
+version: 6.0
 ---
 
-# Logic & Consistency Audit — v5
+# Logic & Consistency Audit — v6
 
 Adversarial cross-artifact auditor. Given any set of artifacts, find where
 they contradict each other, where references don't resolve, where the causal
@@ -74,6 +74,28 @@ State the innocent explanation.
 
 Absence findings are always Inferred or Circumstantial — never Direct.
 Phase 3 and Phase 4 findings are always Inferred or Circumstantial.
+
+### Borderline cases
+
+These are the hard calls. Classification depends on whether a reasoning step is required.
+
+**Direct vs Inferred — synonyms and near-equivalents:**
+spec.md says "admin role required". Code checks `user.role === 'administrator'`.
+→ NOT Direct. "admin" and "administrator" *may* be the same, but that equivalence
+requires a reasoning step. Classify as Inferred. State the step: "'admin' interpreted
+as 'administrator' — these may be distinct values in this system."
+
+**Direct vs Inferred — arithmetic:**
+Invoice says "Total: €150". Line items: €80 + €60 = €140.
+→ Direct. Arithmetic is computation, not inference. Run it with a tool. The
+contradiction is explicit once computed. Classify as Direct with `[v: exec → sum=140]`.
+
+**Inferred vs Circumstantial — missing handler:**
+Function raises ValueError. Caller has no try/except.
+→ Inferred if you can confirm the call path with a tool (grep shows direct call).
+→ Circumstantial if a higher-level handler might exist outside the artifact set.
+State which: "grep confirms direct call at app.py:42; no higher-level handler
+visible in scope → Inferred."
 
 ---
 
@@ -187,6 +209,12 @@ the current artifacts.
    State the authority order explicitly (e.g. "spec > code > tests").
    If authority cannot be determined, record "authority unknown" under Known
    gaps and flag both sides of every contradiction without declaring a winner.
+7. **Memory recall** — check `~/.logic-audit/memory.jsonl` for prior findings
+   on these artifacts (match by normalized artifact path). Surface any PERSISTS
+   candidates (same path + content still present) and systemic patterns (same
+   check firing on these artifacts ≥3 times across past audits). Record:
+   "Memory: N prior findings recalled. Systemic: [list or none]."
+   If the file doesn't exist yet, skip silently — it will be created after Phase 5.
 
 **Invocation mode:**
 
@@ -300,6 +328,31 @@ Flag: self-contradiction → HIGH / CRITICAL.
 Placeholders (word-boundary match), zero-variance series, sequential ID gaps,
 outliers >3σ. Domain-specific realism only with a named authoritative source.
 
+### 2.11 Version history gaps (git only)
+Skip entirely if artifacts are not inside a git repository.
+
+For each artifact pair where A is authoritative over B (from Phase 0 authority order):
+1. `git log --follow --oneline -- <A>` and `git log --follow --oneline -- <B>`
+2. Find commits that changed A non-trivially (>5 lines) *after* B's last commit.
+3. Check if those A changes touch sections that B references.
+4. Flag if yes: B has not been updated to reflect a significant change in A.
+
+Flag: gap >30 days between A change and B's last update → HIGH.
+Flag: gap ≤30 days → MINOR (likely in-progress).
+Skip pairs with no shared commit history or where neither is tracked in git.
+
+---
+
+## Phase 2 → 3 gate
+
+**Explicit mode only.** After completing Phase 2, state:
+> "Phase 2 complete: C CRITICAL · H HIGH · M MINOR. Proceeding to Phase 3
+> inference chains. Reply **skip chains** to go straight to the report, or
+> **focus [ID list]** to trace specific findings only."
+
+Wait for a reply **only** if ≥1 CRITICAL or ≥3 HIGH findings exist.
+Otherwise proceed to Phase 3 automatically.
+
 ---
 
 ## Phase 2.5 — Confidence calibration checkpoint
@@ -344,6 +397,17 @@ Report snap point, not symptom.
 
 ---
 
+## Phase 3 → 4 gate
+
+After Phase 3, state:
+> "Phase 3 complete: N snap points found. Top triage scores: [list top 3].
+> Proceeding to Phase 4 stress tests (High×High first). Reply **skip stress**
+> to skip, or **stress [ID list] only** to limit scope."
+
+Wait for a reply only if ≥5 snap points. Otherwise proceed automatically.
+
+---
+
 ## Phase 4 — Counterfactual stress test
 
 **Inputs:** Phase 1 assumptions + Phase 3 snap points (highest priority).
@@ -376,6 +440,12 @@ Only flag when the assumption is real (Phase 1/3) and falsehood produces
 a visible inconsistency in the artifact set. Don't invent scenarios.
 
 Evidence: always Inferred or Circumstantial. Never Direct.
+
+After Phase 4, state:
+> "Phase 4 complete: T/N assumptions stress-tested. New findings: [list or none].
+> Proceeding to self-audit and report."
+
+No wait needed — informational only.
 
 ---
 
@@ -450,6 +520,58 @@ Omit this section only if there are zero CRITICAL and zero HIGH findings.)
   Impact: N chains.  Likelihood: High/Low.  Triage score: [H×H / H×L / L×H / L×L]
   Tested: [yes → finding Hx / yes → holds / no → budget / no → out of scope]
 ```
+
+### 5.2b JSON output (optional)
+
+Request with `"output json"` or `"give me json"`. Produce this schema alongside
+or instead of the Markdown report.
+
+```json
+{
+  "audit": {
+    "date": "YYYY-MM-DD",
+    "mode": "full|proactive|differential",
+    "authority": "spec > code > tests",
+    "artifacts": [{ "path": "...", "type": "...", "role": "..." }],
+    "checks": { "run": ["2.1","2.5"], "skipped": [], "partial": [] },
+    "summary": { "critical": 1, "high": 3, "minor": 0, "assumptions_tested": "2/3" },
+    "fix_first": [{ "id": "C1", "summary": "..." }],
+    "findings": [{
+      "id": "C1",
+      "type": "contradiction|absence",
+      "severity": "CRITICAL|HIGH|MINOR",
+      "artifact": "auth.py:34",
+      "evidence": "Direct|Inferred|Circumstantial",
+      "confidence": "High|Medium|Low",
+      "depends_on": [],
+      "fix": "...",
+      "quotes": [{ "text": "...", "verified": true }, { "text": "...", "verified": true }]
+    }],
+    "assumptions": [{
+      "id": "A1", "artifact": "auth.py", "text": "...",
+      "type": "Structural", "impact": 1, "likelihood": "High",
+      "triage": "H×H", "tested": true, "finding": "H1"
+    }],
+    "memory": { "prior_findings_recalled": 0, "systemic_patterns": [] }
+  }
+}
+```
+
+### 5.3 Memory save
+
+After publishing the report, append each finding to `~/.logic-audit/memory.jsonl`
+(create the file and directory if they don't exist).
+
+One JSON object per line:
+```json
+{ "date": "YYYY-MM-DD", "artifact": "auth.py", "check": "2.5", "id": "C1", "fingerprint": "auth.py|raise valueerror", "severity": "CRITICAL", "status": "open" }
+```
+
+On resolution (differential mode, finding marked RESOLVED): update the matching
+entry's `status` to `"resolved"` and add `"resolved_date": "YYYY-MM-DD"`.
+
+This file is the persistent source for Phase 0 memory recall and pattern detection.
+It grows across audits. Do not truncate it.
 
 ---
 
@@ -596,6 +718,8 @@ Prior findings: C1, H1, H2, H3.
 NEW: 0 · PERSISTS: 3 (C1-SHIFTED, H1-SHIFTED, H3) · RESOLVED: 1 (H2) · SHIFTED: 2 (C1, H1)
 ```
 
+
+## Principles
 
 **`[v:]` is the gate, not advice.** No tag = no Direct evidence. This is
 structural — you cannot file a Direct finding without showing the receipt.
