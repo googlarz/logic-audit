@@ -154,4 +154,4 @@ Then restart Claude Code (or reload skills).
 
 ## License
 
-[CC BY 4.0](LICENSE) — free to use commercially, attribution required (credit + link to this repo).
+[Custom](LICENSE) — personal and OSS use free with attribution. Commercial use free but requires a one-time email notification to [googlarz@gmail.com](mailto:googlarz@gmail.com) (company + use case). No payment, just acknowledgment.
