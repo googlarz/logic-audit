@@ -216,6 +216,13 @@ the current artifacts.
    "Memory: N prior findings recalled. Systemic: [list or none]."
    If the file doesn't exist yet, skip silently — it will be created after Phase 5.
 
+   **Memory-aided skip:** for each artifact where memory shows a check was clean
+   last audit (`status: clean`) AND `git log --follow -1 -- <artifact>` shows no
+   commits since that audit date — skip that check on that artifact and record it
+   as `✓ [check] [artifact] — skipped: clean in memory, no git changes since YYYY-MM-DD`.
+   Only applies to checks 2.1, 2.2, 2.7, 2.8 (stable structural checks).
+   Never skip 2.5, 2.9, 2.10, 2.11 — these are sensitive to indirect changes.
+
 **Invocation mode:**
 
 - **Explicit** (`/logic-audit` called directly, or user asks to check/audit):
@@ -249,6 +256,19 @@ unresolved item under Known gaps.
 - **Domain** — "dates are UTC", "amounts are EUR", "name is same entity throughout".
 
 Record in the Assumptions register. Count them. They are the Phase 4 budget.
+
+**Single-pass dual output:** while reading each artifact to extract assumptions,
+simultaneously build two lists for Phase 2 reuse:
+- **Entity list** (for 2.2): every named entity appearing in this artifact.
+- **Claims list** (for 2.7): every claim about a value, state, or behaviour.
+
+Do not read artifacts a second time in Phase 2 to build these lists — Phase 1
+already read them. Reference the Phase 1 output directly.
+
+**Tool call cache:** record every grep/read result during this audit in a mental
+cache keyed by `(artifact, pattern)`. Before issuing any tool call in Phase 2,
+check if that exact `(artifact, pattern)` was already searched. If yes, reuse
+the result — do not re-run the tool call.
 
 **Coverage gate:** before Phase 5, compute T/N where T = assumptions tested
 and N = total extracted. If T/N < 80% and untested assumptions include any
